@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>存储器扩展设计 — 256K×8位 CPU与ROM/RAM连接</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface2: #334155;
+            --text: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent2: #818cf8;
+            --ram-color: #22c55e;
+            --rom-color: #f59e0b;
+            --addr-color: #f472b6;
+            --data-color: #38bdf8;
+            --ctrl-color: #a78bfa;
+            --highlight: #2dd4bf;
+            --danger: #ef4444;
+            --border: #475569;
+            --code-bg: #0f172a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.8;
+            padding: 0;
+        }
+
+        /* Header */
+        .hero {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 40%, #1a1a3e 100%);
+            border-bottom: 2px solid var(--border);
+            padding: 48px 24px 36px;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+        }
+        .hero p {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        /* Layout */
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+
+        /* Sections */
+        section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            margin-bottom: 28px;
+        }
+        section h2 {
+            font-size: 1.35rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--surface2);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        section h2 .icon {
+            font-size: 1.5rem;
+        }
+        section h3 {
+            font-size: 1.1rem;
+            color: var(--accent);
+            margin: 20px 0 10px;
+        }
+
+        /* Info cards */
+        .chip-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 16px 0;
+        }
+        @media (max-width: 700px) {
+            .chip-grid { grid-template-columns: 1fr; }
+        }
+        .chip-card {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+        }
+        .chip-card.ram { border-top: 3px solid var(--ram-color); }
+        .chip-card.rom { border-top: 3px solid var(--rom-color); }
+        .chip-card .chip-name {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .chip-card.ram .chip-name { color: var(--ram-color); }
+        .chip-card.rom .chip-name { color: var(--rom-color); }
+        .chip-card .chip-spec { color: var(--text-secondary); font-size: 0.92rem; }
+        .chip-card .chip-count {
+            font-size: 2.4rem;
+            font-weight: 800;
+            margin: 10px 0;
+        }
+        .chip-card.ram .chip-count { color: var(--ram-color); }
+        .chip-card.rom .chip-count { color: var(--rom-color); }
+        .chip-card .chip-detail { color: var(--text-secondary); font-size: 0.88rem; }
+
+        /* Address map */
+        .addr-map {
+            width: 100%;
+            height: 48px;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            margin: 16px 0;
+            font-size: 0.82rem;
+            font-weight: 700;
+        }
+        .addr-map .ram-seg {
+            background: var(--ram-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+        }
+        .addr-map .rom-seg {
+            background: var(--rom-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+        }
+        .addr-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        /* SVG diagram area */
+        .diagram-container {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow-x: auto;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .diagram-container svg {
+            display: block;
+            margin: 0 auto;
+            min-width: 900px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 0.93rem;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 10px 14px;
+            text-align: left;
+        }
+        th {
+            background: var(--surface2);
+            font-weight: 600;
+            color: var(--accent);
+        }
+        tr:hover td { background: rgba(56, 189, 248, 0.04); }
+        .mono { font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace; font-size: 0.9rem; }
+
+        /* Code blocks */
+        .logic-expr {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 18px;
+            font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 0.92rem;
+            margin: 8px 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Steps */
+        .steps {
+            counter-reset: step;
+        }
+        .step {
+            counter-increment: step;
+            padding-left: 48px;
+            position: relative;
+            margin: 16px 0;
+        }
+        .step::before {
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 2px;
+            width: 32px;
+            height: 32px;
+            background: var(--accent2);
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .step h4 { color: var(--accent); margin-bottom: 4px; }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin: 12px 0;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.88rem;
+        }
+        .legend-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+        .legend-dot.ram-bg { background: var(--ram-color); }
+        .legend-dot.rom-bg { background: var(--rom-color); }
+        .legend-dot.addr-bg { background: var(--addr-color); }
+        .legend-dot.data-bg { background: var(--data-color); }
+        .legend-dot.ctrl-bg { background: var(--ctrl-color); }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: -1px;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            color: var(--text-secondary);
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.93rem;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .tab-btn.active {
+            background: var(--surface);
+            color: var(--accent);
+            border-color: var(--border);
+            border-bottom: 2px solid var(--surface);
+            margin-bottom: -1px;
+            z-index: 1;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Tooltip-like footnotes */
+        .note {
+            background: rgba(129, 140, 248, 0.08);
+            border-left: 3px solid var(--accent2);
+            border-radius: 0 8px 8px 0;
+            padding: 12px 18px;
+            margin: 16px 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .note strong { color: var(--accent); }
+
+        footer {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            padding: 24px;
+            border-top: 1px solid var(--border);
+            margin-top: 20px;
+        }
+
+        /* Print */
+        @media print {
+            body { background: #fff; color: #000; }
+            section { break-inside: avoid; border-color: #ccc; }
+            .diagram-container { overflow: visible; }
+        }
+
+        /* Interactive highlight */
+        .highlight-line { transition: filter 0.3s; }
+        .highlight-line:hover { filter: brightness(1.3); }
+    </style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+    <h1>🧠 存储器扩展设计</h1>
+    <p>
+        CPU 与存储器连接 · 256K×8 位存储系统 · ROM 64K×4 + RAM 32K×8 芯片扩展<br>
+        地址区间：<code>00000H ~ 3FFFFH</code>（256KB）| ROM 映射至 <code>30000H ~ 3FFFFH</code>
+    </p>
+</div>
+
+<div class="container">
+
+<!-- ============ 1. 需求分析与芯片计算 ============ -->
+<section>
+    <h2><span class="icon">📐</span> 1. 需求分析与芯片数量计算</h2>
+
+    <div class="chip-grid">
+        <div class="chip-card ram">
+            <div class="chip-name">RAM 芯片</div>
+            <div class="chip-spec">32K × 8 位</div>
+            <div class="chip-count">× 6 片</div>
+            <div class="chip-detail">192KB ÷ 32KB = 6 片<br>数据线已为 8 位，仅需字扩展</div>
+        </div>
+        <div class="chip-card rom">
+            <div class="chip-name">ROM 芯片</div>
+            <div class="chip-spec">64K × 4 位</div>
+            <div class="chip-count">× 2 片</div>
+            <div class="chip-detail">64KB ÷ 64KB = 1 组<br>位扩展：2 片拼接为 8 位数据线</div>
+        </div>
+    </div>
+
+    <div class="note">
+        <strong>📌 计算过程：</strong><br>
+        • <strong>ROM 区大小：</strong><code>3FFFFH − 30000H + 1 = 10000H = 64KB</code> → 需要 2 片 <code>64K×4</code> ROM 位扩展<br>
+        • <strong>RAM 区大小：</strong><code>256KB − 64KB = 192KB</code> → 需要 <code>192 ÷ 32 = 6</code> 片 <code>32K×8</code> RAM<br>
+        • <strong>总计：</strong>8 片芯片（6 RAM + 2 ROM），地址线 18 根（A17–A0），数据线 8 根（D7–D0）
+    </div>
+</section>
+
+<!-- ============ 2. 地址空间分配 ============ -->
+<section>
+    <h2><span class="icon">🗺️</span> 2. 地址空间分配</h2>
+
+    <!-- 地址空间可视化条 -->
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot ram-bg"></div> RAM (192KB)</div>
+        <div class="legend-item"><div class="legend-dot rom-bg"></div> ROM (64KB)</div>
+    </div>
+    <div class="addr-map">
+        <div class="ram-seg" style="width:25%;">RAM₀<br>32KB</div>
+        <div class="ram-seg" style="width:25%;">RAM₁<br>32KB</div>
+        <div class="ram-seg" style="width:12.5%;">RAM₂<br>32KB</div>
+        <div class="ram-seg" style="width:12.5%;">RAM₃<br>32KB</div>
+        <div class="ram-seg" style="width:12.5%;">RAM₄<br>32KB</div>
+        <div class="ram-seg" style="width:12.5%;">RAM₅<br>32KB</div>
+        <div class="rom-seg" style="width:25%;">ROM<br>64KB</div>
+    </div>
+    <div class="addr-labels">
+        <span>00000H</span><span>08000H</span><span>10000H</span><span>18000H</span><span>20000H</span><span>28000H</span><span>30000H</span><span>3FFFFH</span>
+    </div>
+
+    <h3>地址译码表</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>芯片组</th>
+                <th>地址区间</th>
+                <th>A17</th><th>A16</th><th>A15</th>
+                <th>容量</th>
+                <th>片选来源</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₀</strong></td>
+                <td class="mono">00000H ~ 07FFFH</td>
+                <td>0</td><td>0</td><td>0</td><td>32KB</td>
+                <td class="mono">Y0 (A17=0,A16=0,A15=0)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₁</strong></td>
+                <td class="mono">08000H ~ 0FFFFH</td>
+                <td>0</td><td>0</td><td>1</td><td>32KB</td>
+                <td class="mono">Y1 (A17=0,A16=0,A15=1)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₂</strong></td>
+                <td class="mono">10000H ~ 17FFFH</td>
+                <td>0</td><td>1</td><td>0</td><td>32KB</td>
+                <td class="mono">Y2 (A17=0,A16=1,A15=0)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₃</strong></td>
+                <td class="mono">18000H ~ 1FFFFH</td>
+                <td>0</td><td>1</td><td>1</td><td>32KB</td>
+                <td class="mono">Y3 (A17=0,A16=1,A15=1)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₄</strong></td>
+                <td class="mono">20000H ~ 27FFFH</td>
+                <td>1</td><td>0</td><td>0</td><td>32KB</td>
+                <td class="mono">Y4 (A17=1,A16=0,A15=0)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--ram-color)">RAM₅</strong></td>
+                <td class="mono">28000H ~ 2FFFFH</td>
+                <td>1</td><td>0</td><td>1</td><td>32KB</td>
+                <td class="mono">Y5 (A17=1,A16=0,A15=1)</td>
+            </tr>
+            <tr>
+                <td><strong style="color:var(--rom-color)">ROM</strong></td>
+                <td class="mono">30000H ~ 3FFFFH</td>
+                <td>1</td><td>1</td><td>×</td><td>64KB</td>
+                <td class="mono">Y6 + Y7 → 组合选中</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        <strong>💡 译码策略：</strong>使用 74LS138（3-8 译码器），输入接 <code>A17, A16, A15</code>。<br>
+        Y0–Y5 分别选通 6 片 RAM（每片 32KB），Y6 和 Y7 合并后选通 ROM 组（64KB 连续空间）。<br>
+        ROM 组内部由 2 片 <code>64K×4</code> 芯片位扩展：一片负责 D3–D0，另一片负责 D7–D4。
+    </div>
+</section>
+
+<!-- ============ 3. CPU-存储器连接图 ============ -->
+<section>
+    <h2><span class="icon">🔌</span> 3. CPU 与存储器连接图（完整）</h2>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot addr-bg"></div> 地址总线</div>
+        <div class="legend-item"><div class="legend-dot data-bg"></div> 数据总线</div>
+        <div class="legend-item"><div class="legend-dot ctrl-bg"></div> 控制信号</div>
+    </div>
+
+    <div class="diagram-container" id="main-diagram">
+        <!-- SVG will be inserted here by JS -->
+    </div>
+
+    <div class="note">
+        <strong>🔍 图例说明：</strong><br>
+        • <span style="color:var(--addr-color);">粉色线</span> — 地址总线 A17–A0，A17–A15 接入 74LS138 译码器进行片选<br>
+        • <span style="color:var(--data-color);">蓝色线</span> — 数据总线 D7–D0，所有 RAM 共享；ROM 由 2 片分高低 4 位<br>
+        • <span style="color:var(--ctrl-color);">紫色线</span> — 控制信号：<code>/MEMR</code>（读）、<code>/MEMW</code>（写）、<code>/CS</code>（片选）<br>
+        • ROM 的 <code>/CS</code> 由 Y6 和 Y7 经或门（实际用与非门 + 反相器实现）合并产生
+    </div>
+</section>
+
+<!-- ============ 4. 片选逻辑与译码电路 ============ -->
+<section>
+    <h2><span class="icon">🧮</span> 4. 片选逻辑与译码电路</h2>
+
+    <h3>4.1 74LS138 3-8 译码器连接</h3>
+    <table>
+        <thead>
+            <tr><th>输入</th><th>连接</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="mono">C (A17)</td><td>CPU A17</td><td>最高位地址输入</td></tr>
+            <tr><td class="mono">B (A16)</td><td>CPU A16</td><td>次高位地址输入</td></tr>
+            <tr><td class="mono">A (A15)</td><td>CPU A15</td><td>第三位地址输入</td></tr>
+            <tr><td class="mono">/G2A, /G2B</td><td>GND</td><td>使能端接地（常有效）</td></tr>
+            <tr><td class="mono">G1</td><td>VCC</td><td>使能端接高电平（常有效）</td></tr>
+        </tbody>
+    </table>
+
+    <h3>4.2 输出分配</h3>
+    <table>
+        <thead>
+            <tr><th>译码器输出</th><th>对应 A17A16A15</th><th>地址区间</th><th>连接目标</th></tr>
+        </thead>
+        <tbody>
+            <tr><td class="mono">/Y0</td><td>000</td><td class="mono">00000H–07FFFH</td><td>→ RAM₀ /CS</td></tr>
+            <tr><td class="mono">/Y1</td><td>001</td><td class="mono">08000H–0FFFFH</td><td>→ RAM₁ /CS</td></tr>
+            <tr><td class="mono">/Y2</td><td>010</td><td class="mono">10000H–17FFFH</td><td>→ RAM₂ /CS</td></tr>
+            <tr><td class="mono">/Y3</td><td>011</td><td class="mono">18000H–1FFFFH</td><td>→ RAM₃ /CS</td></tr>
+            <tr><td class="mono">/Y4</td><td>100</td><td class="mono">20000H–27FFFH</td><td>→ RAM₄ /CS</td></tr>
+            <tr><td class="mono">/Y5</td><td>101</td><td class="mono">28000H–2FFFFH</td><td>→ RAM₅ /CS</td></tr>
+            <tr><td class="mono">/Y6</td><td>110</td><td class="mono">30000H–37FFFH</td><td rowspan="2">→ 与非门 → ROM₀ + ROM₁ /CS</td></tr>
+            <tr><td class="mono">/Y7</td><td>111</td><td class="mono">38000H–3FFFFH</td></tr>
+        </tbody>
+    </table>
+
+    <h3>4.3 ROM 片选逻辑</h3>
+    <div class="logic-expr">
+  /CS_ROM = /Y6 · /Y7  （即 Y6 和 Y7 同时有效时选中 ROM 组）
+
+  等效于：/CS_ROM = NOT( Y6 + Y7 )
+          = 当 A17A16A15 = 110 或 111 时有效
+          = 当 A17=1, A16=1 时（忽略 A15），即地址 30000H–3FFFFH
+
+  实现方式：/Y6 和 /Y7 接入一个 2 输入与非门（74LS00），
+           输出接 ROM₀ 和 ROM₁ 的 /CS 引脚。
+    </div>
+
+    <div class="diagram-container" id="decode-diagram">
+        <!-- Decoder SVG will be inserted here -->
+    </div>
+</section>
+
+<!-- ============ 5. 完整连线清单 ============ -->
+<section>
+    <h2><span class="icon">📋</span> 5. 完整连线清单</h2>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-ram">RAM 连线</button>
+        <button class="tab-btn" data-tab="tab-rom">ROM 连线</button>
+        <button class="tab-btn" data-tab="tab-decoder">译码器连线</button>
+    </div>
+
+    <div class="tab-content active" id="tab-ram">
+        <table>
+            <thead>
+                <tr><th>信号</th><th>CPU 端</th><th>RAM₀–RAM₅ 端</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>地址线</td><td class="mono">A14–A0</td><td class="mono">A14–A0</td><td>6 片 RAM 并接，各自 32K=15 根地址线</td></tr>
+                <tr><td>数据线</td><td class="mono">D7–D0</td><td class="mono">D7–D0</td><td>6 片 RAM 并接，共享数据总线</td></tr>
+                <tr><td>读信号</td><td class="mono">/MEMR</td><td class="mono">/OE</td><td>输出使能</td></tr>
+                <tr><td>写信号</td><td class="mono">/MEMW</td><td class="mono">/WE</td><td>写使能（仅 RAM 需要）</td></tr>
+                <tr><td>片选 0</td><td class="mono">译码器 /Y0</td><td class="mono">RAM₀ /CS</td><td>00000H–07FFFH</td></tr>
+                <tr><td>片选 1</td><td class="mono">译码器 /Y1</td><td class="mono">RAM₁ /CS</td><td>08000H–0FFFFH</td></tr>
+                <tr><td>片选 2</td><td class="mono">译码器 /Y2</td><td class="mono">RAM₂ /CS</td><td>10000H–17FFFH</td></tr>
+                <tr><td>片选 3</td><td class="mono">译码器 /Y3</td><td class="mono">RAM₃ /CS</td><td>18000H–1FFFFH</td></tr>
+                <tr><td>片选 4</td><td class="mono">译码器 /Y4</td><td class="mono">RAM₄ /CS</td><td>20000H–27FFFH</td></tr>
+                <tr><td>片选 5</td><td class="mono">译码器 /Y5</td><td class="mono">RAM₅ /CS</td><td>28000H–2FFFFH</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="tab-content" id="tab-rom">
+        <table>
+            <thead>
+                <tr><th>信号</th><th>CPU 端</th><th>ROM₀ / ROM₁ 端</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>地址线</td><td class="mono">A15–A0</td><td class="mono">A15–A0</td><td>2 片 ROM 并接，各自 64K=16 根地址线</td></tr>
+                <tr><td>数据线 (低)</td><td class="mono">D3–D0</td><td class="mono">ROM₀ D3–D0</td><td>低 4 位数据</td></tr>
+                <tr><td>数据线 (高)</td><td class="mono">D7–D4</td><td class="mono">ROM₁ D3–D0</td><td>高 4 位数据（位扩展）</td></tr>
+                <tr><td>读信号</td><td class="mono">/MEMR</td><td class="mono">/OE</td><td>输出使能</td></tr>
+                <tr><td>片选</td><td class="mono">与非门输出</td><td class="mono">/CS (两片并接)</td><td>Y6·Y7 → 30000H–3FFFFH</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="tab-content" id="tab-decoder">
+        <table>
+            <thead>
+                <tr><th>74LS138 引脚</th><th>连接</th><th>说明</th></tr>
+            </thead>
+            <tbody>
+                <tr><td class="mono">A (pin 1)</td><td class="mono">CPU A15</td><td>译码输入最低位</td></tr>
+                <tr><td class="mono">B (pin 2)</td><td class="mono">CPU A16</td><td>译码输入中间位</td></tr>
+                <tr><td class="mono">C (pin 3)</td><td class="mono">CPU A17</td><td>译码输入最高位</td></tr>
+                <tr><td class="mono">/G2A (pin 4)</td><td class="mono">GND</td><td>使能（低有效）</td></tr>
+                <tr><td class="mono">/G2B (pin 5)</td><td class="mono">GND</td><td>使能（低有效）</td></tr>
+                <tr><td class="mono">G1 (pin 6)</td><td class="mono">VCC</td><td>使能（高有效）</td></tr>
+                <tr><td class="mono">/Y7–/Y0</td><td>见上方分配表</td><td>低电平有效输出</td></tr>
+                <tr><td class="mono">74LS00 (与非门)</td><td class="mono">输入: /Y6, /Y7<br>输出: ROM /CS</td><td>合并两个 32K 区域为 64K ROM 空间</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ============ 6. 设计总结 ============ -->
+<section>
+    <h2><span class="icon">✅</span> 6. 设计总结</h2>
+
+    <div class="steps">
+        <div class="step">
+            <h4>芯片选型与数量</h4>
+            <p>
+                ROM 区 64KB → <strong>2 片</strong> <code>64K×4</code> ROM 位扩展（1 片低 4 位 + 1 片高 4 位）<br>
+                RAM 区 192KB → <strong>6 片</strong> <code>32K×8</code> RAM 字扩展<br>
+                合计 <strong>8 片</strong> 存储芯片
+            </p>
+        </div>
+        <div class="step">
+            <h4>地址划分</h4>
+            <p>
+                以 <code>A17, A16, A15</code> 三级译码将 256KB 空间分为 8 个 32KB 块。<br>
+                前 6 块（00000H–2FFFFH）分配给 6 片 RAM；<br>
+                后 2 块（30000H–3FFFFH）合并为 64KB 连续 ROM 空间。
+            </p>
+        </div>
+        <div class="step">
+            <h4>译码电路</h4>
+            <p>
+                核心器件：<strong>74LS138</strong>（3-8 译码器）+ <strong>74LS00</strong>（2 输入与非门）。<br>
+                Y0–Y5 → 各接一片 RAM /CS；Y6+Y7 → 经与非门 → 两片 ROM /CS 并联。
+            </p>
+        </div>
+        <div class="step">
+            <h4>总线连接</h4>
+            <p>
+                RAM 数据线 D7–D0 直接挂总线；ROM 数据线分两片接 D3–D0 和 D7–D4。<br>
+                所有芯片地址线对接 CPU 相应低位地址线。<br>
+                /MEMR 接所有芯片 /OE；/MEMW 仅接所有 RAM 芯片 /WE。
+            </p>
+        </div>
+    </div>
+</section>
+
+</div><!-- .container -->
+
+<footer>
+    计算机组成原理 · 存储器扩展设计 · CPU 与存储器连接 · 2026
+</footer>
+
+<!-- ============ SCRIPTS ============ -->
+<script>
+// =============== Tab Switching ===============
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tabGroup = btn.parentElement;
+        const container = tabGroup.parentElement;
+
+        tabGroup.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        container.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        const target = container.querySelector('#' + btn.dataset.tab);
+        if (target) target.classList.add('active');
+    });
+});
+
+// =============== SVG: Main CPU-Memory Connection Diagram ===============
+function drawMainDiagram() {
+    const container = document.getElementById('main-diagram');
+    const svgNS = 'http://www.w3.org/2000/svg';
+
+    const W = 1000, H = 750;
+
+    let svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', 'auto');
+    svg.style.maxWidth = '1000px';
+
+    // --- Helpers ---
+    function rect(x,y,w,h, fill, stroke, rx=4) {
+        let r = document.createElementNS(svgNS, 'rect');
+        r.setAttribute('x', x); r.setAttribute('y', y);
+        r.setAttribute('width', w); r.setAttribute('height', h);
+        r.setAttribute('fill', fill); r.setAttribute('stroke', stroke||'#475569');
+        r.setAttribute('stroke-width', '1.5'); r.setAttribute('rx', rx);
+        svg.appendChild(r);
+        return r;
+    }
+    function text(x,y, content, color, size=12, anchor='middle', bold=false) {
+        let t = document.createElementNS(svgNS, 'text');
+        t.setAttribute('x', x); t.setAttribute('y', y);
+        t.setAttribute('fill', color); t.setAttribute('font-size', size);
+        t.setAttribute('font-family', 'Segoe UI, PingFang SC, Microsoft YaHei, sans-serif');
+        t.setAttribute('text-anchor', anchor);
+        if (bold) t.setAttribute('font-weight', '700');
+        t.textContent = content;
+        svg.appendChild(t);
+        return t;
+    }
+    function line(x1,y1,x2,y2, color, width=1.5, dash='') {
+        let l = document.createElementNS(svgNS, 'line');
+        l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+        l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+        l.setAttribute('stroke', color); l.setAttribute('stroke-width', width);
+        if (dash) l.setAttribute('stroke-dasharray', dash);
+        svg.appendChild(l);
+        return l;
+    }
+    function polyline(points, color, width=1.5) {
+        let p = document.createElementNS(svgNS, 'polyline');
+        p.setAttribute('points', points);
+        p.setAttribute('stroke', color); p.setAttribute('stroke-width', width);
+        p.setAttribute('fill', 'none');
+        svg.appendChild(p);
+        return p;
+    }
+    function busLine(x1, y1, x2, y2, color, label, labelOffset=0) {
+        line(x1, y1, x2, y2, color, 2.5);
+        if (label) {
+            let mx = (x1+x2)/2, my = (y1+y2)/2 + labelOffset;
+            text(mx, my, label, color, 10, 'middle');
+        }
+    }
+
+    // --- Color Palette ---
+    const addrCol = '#f472b6';
+    const dataCol = '#38bdf8';
+    const ctrlCol = '#a78bfa';
+    const chipBg = '#1e293b';
+    const chipStroke = '#64748b';
+    const ramCol = '#22c55e';
+    const romCol = '#f59e0b';
+    const highlightCol = '#2dd4bf';
+    const gateBg = '#334155';
+
+    // ===================== CPU Block (Left) =====================
+    rect(30, 30, 150, 600, chipBg, addrCol, 8);
+    text(105, 60, 'CPU', '#fff', 18, 'middle', true);
+    text(105, 85, '地址线 A17-A0', addrCol, 11, 'middle');
+    text(105, 105, '数据线 D7-D0', dataCol, 11, 'middle');
+    text(105, 125, '控制总线', ctrlCol, 11, 'middle');
+
+    // CPU pins area
+    // Address bus pins (right side, top)
+    for (let i = 0; i < 18; i++) {
+        let y = 150 + i * 22;
+        rect(165, y-5, 15, 10, addrCol, 'none', 2);
+        text(145, y+4, `A${17-i}`, addrCol, 9, 'end');
+    }
+
+    // Data bus pins (right side, middle)
+    for (let i = 0; i < 8; i++) {
+        let y = 570 + i * 18;
+        rect(165, y-4, 15, 8, dataCol, 'none', 2);
+        text(145, y+3, `D${7-i}`, dataCol, 9, 'end');
+    }
+
+    // Control pins
+    text(145, 715, '/MEMR', ctrlCol, 10, 'end');
+    rect(165, 708, 15, 8, ctrlCol, 'none', 2);
+    text(145, 735, '/MEMW', ctrlCol, 10, 'end');
+    rect(165, 728, 15, 8, ctrlCol, 'none', 2);
+
+    // ===================== 74LS138 Decoder (Center-Top) =====================
+    let decX = 320, decY = 100;
+    rect(decX, decY, 160, 180, gateBg, highlightCol, 8);
+    text(decX+80, decY+25, '74LS138', '#fff', 13, 'middle', true);
+    text(decX+80, decY+42, '3-8 译码器', highlightCol, 10, 'middle');
+
+    // Decoder inputs
+    text(decX-8, decY+60, 'A (A15)', addrCol, 9, 'end');
+    text(decX-8, decY+80, 'B (A16)', addrCol, 9, 'end');
+    text(decX-8, decY+100,'C (A17)', addrCol, 9, 'end');
+    text(decX-8, decY+125,'/G2A', ctrlCol, 8, 'end');
+    text(decX-8, decY+142,'/G2B', ctrlCol, 8, 'end');
+    text(decX-8, decY+160,'G1', ctrlCol, 8, 'end');
+
+    // Decoder outputs (right side)
+    for (let i = 0; i < 8; i++) {
+        let y = decY + 55 + i * 16;
+        text(decX+170, y+4, `/Y${i}`, i >= 6 ? romCol : ramCol, 9, 'start');
+        rect(decX+150, y-3, 10, 7, i >= 6 ? romCol : ramCol, 'none', 1);
+    }
+
+    // ===================== NAND Gate (74LS00) for ROM CS =====================
+    let nandX = 320, nandY = 340;
+    rect(nandX, nandY, 100, 60, gateBg, romCol, 6);
+    text(nandX+50, nandY+22, '74LS00', '#fff', 11, 'middle', true);
+    text(nandX+50, nandY+42, '与非门', romCol, 9, 'middle');
+    text(nandX-10, nandY+20, '/Y6', romCol, 8, 'end');
+    text(nandX-10, nandY+40, '/Y7', romCol, 8, 'end');
+    text(nandX+110, nandY+30, '→ ROM /CS', romCol, 9, 'start');
+
+    // ===================== RAM Chips (Right, Upper) =====================
+    let ramStartX = 620, ramStartY = 40;
+    const ramLabels = ['RAM₀', 'RAM₁', 'RAM₂', 'RAM₃', 'RAM₄', 'RAM₅'];
+    for (let i = 0; i < 6; i++) {
+        let col = i % 3;
+        let row = Math.floor(i / 3);
+        let rx = ramStartX + col * 135;
+        let ry = ramStartY + row * 170;
+
+        rect(rx, ry, 125, 145, chipBg, ramCol, 8);
+        text(rx+62, ry+22, ramLabels[i], ramCol, 13, 'middle', true);
+        text(rx+62, ry+42, '32K×8', '#94a3b8', 10, 'middle');
+
+        // Pins left side: address
+        text(rx-8, ry+58, 'A14-A0', addrCol, 8, 'end');
+        text(rx-8, ry+75, '/CS', ctrlCol, 8, 'end');
+        text(rx-8, ry+95, '/OE', ctrlCol, 8, 'end');
+        text(rx-8, ry+115, '/WE', ctrlCol, 8, 'end');
+
+        // Pins right side: data
+        text(rx+135, ry+70, 'D7-D0', dataCol, 8, 'start');
+    }
+
+    // ===================== ROM Chips (Right, Lower) =====================
+    let romStartX = 620, romStartY = 430;
+    for (let i = 0; i < 2; i++) {
+        let rx = romStartX + i * 170;
+        rect(rx, romStartY, 150, 145, chipBg, romCol, 8);
+        text(rx+75, romStartY+22, i === 0 ? 'ROM₀ (低4位)' : 'ROM₁ (高4位)', romCol, 12, 'middle', true);
+        text(rx+75, romStartY+42, '64K×4', '#94a3b8', 10, 'middle');
+
+        text(rx-8, romStartY+58, 'A15-A0', addrCol, 8, 'end');
+        text(rx-8, romStartY+78, '/CS', ctrlCol, 8, 'end');
+        text(rx-8, romStartY+98, '/OE', ctrlCol, 8, 'end');
+
+        text(rx+160, romStartY+60, i === 0 ? 'D3-D0' : 'D7-D4', dataCol, 8, 'start');
+    }
+
+    // ===================== BUS LINES =====================
+
+    // --- Address Bus (Pink) ---
+    // A17-A15 go to decoder
+    line(180, 154, decX-2, decY+59, addrCol, 1.8);
+    line(180, 176, decX-2, decY+79, addrCol, 1.8);
+    line(180, 198, decX-2, decY+99, addrCol, 1.8);
+
+    // A14-A0 go to all RAM and ROM
+    // Main address bus trunk going right
+    let addrBusY = 210;
+    line(180, 210, 500, addrBusY, addrCol, 2);
+    text(340, addrBusY-8, 'A14-A0 地址总线', addrCol, 9, 'middle');
+
+    // Branches to RAMs
+    for (let i = 0; i < 6; i++) {
+        let col = i % 3, row = Math.floor(i/3);
+        let rx = ramStartX + col * 135, ry = ramStartY + row * 170;
+        line(180, addrBusY, rx, ry+57, addrCol, 1.2);
+    }
+    // Branches to ROMs
+    line(180, addrBusY, romStartX, romStartY+57, addrCol, 1.2);
+    line(180, addrBusY, romStartX+170, romStartY+57, addrCol, 1.2);
+
+    // --- Data Bus (Blue) ---
+    let dataBusX = 560;
+    // D7-D0 from CPU going up to RAMs
+    // We draw a vertical bus on the right of the chips
+    // CPU data lines start at Y=570
+    let dataBusTopY = 70;
+    // Vertical data bus
+    line(dataBusX, dataBusTopY, dataBusX, 620, dataCol, 2);
+    text(dataBusX+12, 340, 'D7–D0', dataCol, 10, 'start');
+    text(dataBusX+12, 355, '数据总线', dataCol, 9, 'start');
+
+    // Connect CPU data pins to bus
+    for (let i = 0; i < 8; i++) {
+        let y = 570 + i * 10;
+        line(180, y, dataBusX, y, dataCol, 0.8);
+    }
+
+    // Connect all RAM data pins to bus
+    for (let i = 0; i < 6; i++) {
+        let col = i % 3, row = Math.floor(i/3);
+        let rx = ramStartX + col * 135, ry = ramStartY + row * 170;
+        let ramRightX = rx + 125;
+        line(ramRightX, ry+70, dataBusX, ry+70, dataCol, 1.2);
+    }
+
+    // Connect ROM data pins
+    // ROM0: D3-D0 (lower 4 bits of bus)
+    let rom0RightX = romStartX + 150;
+    line(rom0RightX, romStartY+60, dataBusX, romStartY+60, dataCol, 1.2);
+    text(rom0RightX+10, romStartY+55, 'D3-D0', dataCol, 7, 'start');
+
+    // ROM1: D7-D4 (upper 4 bits of bus)
+    let rom1RightX = romStartX + 170 + 150;
+    line(rom1RightX, romStartY+60, dataBusX, romStartY+60, dataCol, 1.2);
+    text(rom1RightX+10, romStartY+55, 'D7-D4', dataCol, 7, 'start');
+
+    // --- Control Signals (Purple) ---
+
+    // /MEMR to all /OE
+    let memrY = 690;
+    let memwY = 710;
+    line(180, memrY, dataBusX-10, memrY, ctrlCol, 1.5);
+    line(180, memwY, dataBusX-10, memwY, ctrlCol, 1.5);
+    text(360, memrY-7, '/MEMR → 所有芯片 /OE', ctrlCol, 9, 'middle');
+    text(360, memwY+12, '/MEMW → 所有 RAM /WE', ctrlCol, 9, 'middle');
+
+    // /MEMR to RAMs
+    for (let i = 0; i < 6; i++) {
+        let col = i % 3, row = Math.floor(i/3);
+        let rx = ramStartX + col * 135, ry = ramStartY + row * 170;
+        line(rx, ry+95, dataBusX-10, memrY, ctrlCol, 0.8);
+    }
+    // /MEMR to ROMs
+    line(romStartX, romStartY+98, dataBusX-10, memrY, ctrlCol, 0.8);
+    line(romStartX+170, romStartY+98, dataBusX-10, memrY, ctrlCol, 0.8);
+
+    // /MEMW to RAMs only
+    for (let i = 0; i < 6; i++) {
+        let col = i % 3, row = Math.floor(i/3);
+        let rx = ramStartX + col * 135, ry = ramStartY + row * 170;
+        let memwBranchY = memwY + 10;
+        line(rx, ry+115, dataBusX-10, memwBranchY, ctrlCol, 0.8);
+    }
+    // (ROM has no /WE)
+
+    // --- Chip Select Lines from Decoder ---
+    // Y0-Y5 → RAM0-RAM5 /CS
+    for (let i = 0; i < 6; i++) {
+        let ySrc = decY + 55 + i * 16;
+        let col = i % 3, row = Math.floor(i/3);
+        let rx = ramStartX + col * 135, ry = ramStartY + row * 170;
+        polyline(`${decX+155},${ySrc} ${decX+200},${ySrc} ${decX+200},${ry+75} ${rx},${ry+75}`,
+            i >= 6 ? romCol : ramCol, 1.3);
+    }
+
+    // Y6, Y7 → NAND gate → ROM /CS
+    polyline(`${decX+155},${decY+55+6*16} ${decX+200},${decY+55+6*16} ${decX+200},${nandY+20} ${nandX-2},${nandY+20}`,
+        romCol, 1.3);
+    polyline(`${decX+155},${decY+55+7*16} ${decX+220},${decY+55+7*16} ${decX+220},${nandY+40} ${nandX-2},${nandY+40}`,
+        romCol, 1.3);
+
+    // NAND output → ROM /CS
+    line(nandX+100, nandY+30, romStartX-10, romStartY+78, romCol, 1.5);
+    // Both ROM chips share /CS
+    line(romStartX, romStartY+78, romStartX+170, romStartY+78, romCol, 1.2);
+
+    // --- GND / VCC connections for decoder ---
+    text(decX-20, decY+133, 'GND', '#64748b', 8, 'end');
+    text(decX-20, decY+168, 'VCC', '#64748b', 8, 'end');
+
+    // ===================== Legend Box =====================
+    let legendX = 320, legendY = 440;
+    rect(legendX, legendY, 260, 115, '#0f172a', '#475569', 6);
+    text(legendX+130, legendY+18, '图例', '#fff', 11, 'middle', true);
+
+    let legendItems = [
+        {col: addrCol, label: '地址总线 A17-A0'},
+        {col: dataCol, label: '数据总线 D7-D0'},
+        {col: ctrlCol, label: '控制信号 (/MEMR, /MEMW, /CS)'},
+        {col: ramCol, label: 'RAM 片选线'},
+        {col: romCol, label: 'ROM 片选线'},
+    ];
+    legendItems.forEach((item, idx) => {
+        let ly = legendY + 30 + idx * 16;
+        rect(legendX+15, ly-3, 12, 8, item.col, 'none', 2);
+        text(legendX+35, ly+3, item.label, '#94a3b8', 9, 'start');
+    });
+
+    container.innerHTML = '';
+    container.appendChild(svg);
+}
+
+// =============== SVG: Decoder Detail Diagram ===============
+function drawDecoderDiagram() {
+    const container = document.getElementById('decode-diagram');
+    const svgNS = 'http://www.w3.org/2000/svg';
+
+    const W = 900, H = 420;
+    let svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', 'auto');
+    svg.style.maxWidth = '900px';
+
+    function rect(x,y,w,h,fill,stroke,rx=4) {
+        let r = document.createElementNS(svgNS, 'rect');
+        ['x','y','width','height','fill','stroke','stroke-width','rx'].forEach(a => {
+            let v = {x,y,width:w,height:h,fill,stroke,'stroke-width':'1.5',rx}[a];
+            if (v !== undefined) r.setAttribute(a, v);
+        });
+        svg.appendChild(r);
+        return r;
+    }
+    function text(x,y,content,color,size=12,anchor='middle',bold=false) {
+        let t = document.createElementNS(svgNS, 'text');
+        t.setAttribute('x',x); t.setAttribute('y',y);
+        t.setAttribute('fill',color); t.setAttribute('font-size',size);
+        t.setAttribute('font-family','Segoe UI, PingFang SC, Microsoft YaHei, sans-serif');
+        t.setAttribute('text-anchor',anchor);
+        if(bold) t.setAttribute('font-weight','700');
+        t.textContent = content;
+        svg.appendChild(t);
+        return t;
+    }
+    function line(x1,y1,x2,y2,color,width=1.5) {
+        let l = document.createElementNS(svgNS, 'line');
+        l.setAttribute('x1',x1); l.setAttribute('y1',y1);
+        l.setAttribute('x2',x2); l.setAttribute('y2',y2);
+        l.setAttribute('stroke',color); l.setAttribute('stroke-width',width);
+        svg.appendChild(l);
+        return l;
+    }
+    function polyline(pts,color,width=1.5) {
+        let p = document.createElementNS(svgNS, 'polyline');
+        p.setAttribute('points',pts);
+        p.setAttribute('stroke',color); p.setAttribute('stroke-width',width);
+        p.setAttribute('fill','none');
+        svg.appendChild(p);
+        return p;
+    }
+    function circle(cx,cy,r,fill,stroke) {
+        let c = document.createElementNS(svgNS, 'circle');
+        c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',r);
+        c.setAttribute('fill',fill); c.setAttribute('stroke',stroke||'none');
+        c.setAttribute('stroke-width','1.5');
+        svg.appendChild(c);
+        return c;
+    }
+
+    const addrCol = '#f472b6';
+    const ramCol = '#22c55e';
+    const romCol = '#f59e0b';
+    const ctrlCol = '#a78bfa';
+    const gateBg = '#334155';
+    const highlightCol = '#2dd4bf';
+
+    // --- 74LS138 internal block ---
+    let dX = 50, dY = 60, dW = 260, dH = 280;
+    rect(dX, dY, dW, dH, '#0f172a', highlightCol, 10);
+    text(dX+dW/2, dY+30, '74LS138 3-8 译码器', '#fff', 15, 'middle', true);
+
+    // Input labels
+    let inputs = [
+        {label:'A (A15)', y:dY+65},
+        {label:'B (A16)', y:dY+95},
+        {label:'C (A17)', y:dY+125},
+    ];
+    inputs.forEach(inp => {
+        text(dX-5, inp.y, inp.label, addrCol, 11, 'end');
+        circle(dX+10, inp.y-3, 5, addrCol);
+        line(dX+15, inp.y-3, dX+30, inp.y-3, addrCol, 2);
+    });
+
+    // Enable pins
+    text(dX-5, dY+170, '/G2A — GND', '#64748b', 10, 'end');
+    text(dX-5, dY+190, '/G2B — GND', '#64748b', 10, 'end');
+    text(dX-5, dY+210, 'G1 — VCC', '#64748b', 10, 'end');
+
+    // Internal 3-to-8 mapping visualization
+    text(dX+dW/2, dY+155, 'CBA → /Yn', highlightCol, 10, 'middle');
+
+    // Output pins
+    for (let i = 0; i < 8; i++) {
+        let y = dY + 175 + i * 20;
+        let isROM = i >= 6;
+        circle(dX+dW-10, y, 6, isROM ? romCol : ramCol);
+        text(dX+dW+10, y+4, `/Y${i}`, isROM ? romCol : ramCol, 10, 'start');
+    }
+
+    // --- Truth Table Box ---
+    let tX = 370, tY = 60;
+    rect(tX, tY, 220, 280, gateBg, '#475569', 8);
+    text(tX+110, tY+22, '译码真值表', '#fff', 12, 'middle', true);
+    text(tX+110, tY+38, '(使能有效时)', '#64748b', 9, 'middle');
+
+    let rows = [
+        ['0 0 0', '/Y0=0', 'RAM₀', ramCol],
+        ['0 0 1', '/Y1=0', 'RAM₁', ramCol],
+        ['0 1 0', '/Y2=0', 'RAM₂', ramCol],
+        ['0 1 1', '/Y3=0', 'RAM₃', ramCol],
+        ['1 0 0', '/Y4=0', 'RAM₄', ramCol],
+        ['1 0 1', '/Y5=0', 'RAM₅', ramCol],
+        ['1 1 0', '/Y6=0', 'ROM 低32K', romCol],
+        ['1 1 1', '/Y7=0', 'ROM 高32K', romCol],
+    ];
+
+    // Table header
+    text(tX+45, tY+58, 'CBA', '#fff', 10, 'middle', true);
+    text(tX+110, tY+58, '输出', '#fff', 10, 'middle', true);
+    text(tX+170, tY+58, '目标', '#fff', 10, 'middle', true);
+    line(tX+15, tY+62, tX+205, tY+62, '#475569', 1);
+
+    rows.forEach((r, i) => {
+        let ry = tY + 72 + i * 24;
+        if (i >= 6) {
+            rect(tX+12, ry-8, 196, 20, 'rgba(245,158,11,0.08)', 'none', 4);
+        }
+        text(tX+45, ry+4, r[0], '#e2e8f0', 10, 'middle');
+        text(tX+110, ry+4, r[1], r[3], 10, 'middle');
+        text(tX+170, ry+4, r[2], r[3], 10, 'middle');
+    });
+
+    // --- NAND Gate detail ---
+    let nX = 370, nY = 380;
+    rect(nX, nY, 220, 35, gateBg, romCol, 8);
+    text(nX+110, nY+12, '74LS00 与非门', '#fff', 11, 'middle', true);
+    text(nX+110, nY+28, '/CS_ROM = /Y6 · /Y7', romCol, 10, 'middle');
+
+    // Show the logic
+    let gateX = 640, gateY = 240;
+
+    // NAND gate symbol (simplified)
+    rect(gateX, gateY, 120, 70, gateBg, romCol, 8);
+    text(gateX+60, gateY+20, '与非门', '#fff', 11, 'middle', true);
+    text(gateX+60, gateY+38, '/CS_ROM', romCol, 10, 'middle');
+
+    // Input lines from Y6, Y7
+    text(gateX-10, gateY+20, '/Y6 →', romCol, 9, 'end');
+    text(gateX-10, gateY+50, '/Y7 →', romCol, 9, 'end');
+    line(gateX-5, gateY+17, gateX, gateY+17, romCol, 1.5);
+    line(gateX-5, gateY+47, gateX, gateY+47, romCol, 1.5);
+
+    // Output
+    line(gateX+120, gateY+35, gateX+180, gateY+35, romCol, 2);
+    text(gateX+150, gateY+25, '→ ROM₀/CS', romCol, 8, 'middle');
+    text(gateX+150, gateY+52, '→ ROM₁/CS', romCol, 8, 'middle');
+
+    // --- Address Space Bar at bottom ---
+    let barX = 50, barY = 380, barW = 280, barH = 20;
+    // 8 segments
+    for (let i = 0; i < 8; i++) {
+        let segW = barW / 8;
+        let sx = barX + i * segW;
+        rect(sx, barY, segW, barH, i >= 6 ? romCol : ramCol, 'none', i===0?4:0);
+        if (i === 0) rect(sx, barY, segW, barH, i >= 6 ? romCol : ramCol, 'none', 4);
+    }
+    // Border
+    rect(barX, barY, barW, barH, 'none', '#475569', 4);
+
+    text(barX-5, barY-5, '地址空间', '#fff', 9, 'end');
+    text(barX+barW/8*0.5, barY+35, '00000H', '#94a3b8', 7, 'middle');
+    text(barX+barW/8*6.5, barY+35, '30000H', romCol, 7, 'middle');
+    text(barX+barW-2, barY+35, '3FFFFH', romCol, 7, 'middle');
+
+    // RAM/ROM labels
+    text(barX+barW/4, barY+50, '← RAM 192KB →', ramCol, 7, 'middle');
+    text(barX+barW*0.82, barY+50, '← ROM 64KB →', romCol, 7, 'middle');
+
+    // --- Logic equation ---
+    let eqX = 660, eqY = 60;
+    rect(eqX, eqY, 230, 130, '#0f172a', '#475569', 8);
+    text(eqX+115, eqY+20, '逻辑表达式', '#fff', 12, 'middle', true);
+    text(eqX+115, eqY+50, '/CS_ROM = /Y6 · /Y7', romCol, 12, 'middle', true);
+    text(eqX+115, eqY+75, '即 A17=1 且 A16=1 时有效', '#94a3b8', 10, 'middle');
+    text(eqX+115, eqY+95, '(A15 任意, 覆盖 64KB)', '#64748b', 9, 'middle');
+    text(eqX+115, eqY+115, 'CS_RAMn = /Yn  (n=0..5)', ramCol, 11, 'middle');
+
+    container.innerHTML = '';
+    container.appendChild(svg);
+}
+
+// =============== INIT ===============
+window.addEventListener('DOMContentLoaded', () => {
+    drawMainDiagram();
+    drawDecoderDiagram();
+});
+</script>
+
+</body>
+</html>
